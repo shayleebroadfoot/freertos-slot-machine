@@ -48,12 +48,19 @@ I2S_HandleTypeDef hi2s3;
 
 SPI_HandleTypeDef hspi1;
 
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
+/* Definitions for senderTask */
+osThreadId_t senderTaskHandle;
+const osThreadAttr_t senderTask_attributes = {
+  .name = "senderTask",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for receiverTask */
+osThreadId_t receiverTaskHandle;
+const osThreadAttr_t receiverTask_attributes = {
+  .name = "receiverTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* USER CODE BEGIN PV */
 
@@ -65,7 +72,8 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
-void StartDefaultTask(void *argument);
+void StartSenderTask(void *argument);
+void StartReceiverTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -132,8 +140,11 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  /* creation of senderTask */
+  senderTaskHandle = osThreadNew(StartSenderTask, NULL, &senderTask_attributes);
+
+  /* creation of receiverTask */
+  receiverTaskHandle = osThreadNew(StartReceiverTask, NULL, &receiverTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -412,14 +423,14 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_StartSenderTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  Function implementing the senderTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+/* USER CODE END Header_StartSenderTask */
+void StartSenderTask(void *argument)
 {
   /* init code for USB_HOST */
   MX_USB_HOST_Init();
@@ -427,11 +438,43 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
+
+      if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
+      {
+          xTaskNotifyGive(receiverTaskHandle);
+          vTaskDelay(pdMS_TO_TICKS(5000));
+      }
+
+      vTaskDelay(pdMS_TO_TICKS(50));
   }
   /* USER CODE END 5 */
 }
 
+/* USER CODE BEGIN Header_StartReceiverTask */
+/**
+* @brief Function implementing the receiverTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartReceiverTask */
+void StartReceiverTask(void *argument)
+{
+  /* USER CODE BEGIN StartReceiverTask */
+  /* Infinite loop */
+  for(;;)
+  {
+	  ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
+
+      vTaskDelay(pdMS_TO_TICKS(5000));
+
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
+  }
+  /* USER CODE END StartReceiverTask */
+}
 /**
   * @brief  This function is executed in case of error occurrence.
   * @retval None

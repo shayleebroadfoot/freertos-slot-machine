@@ -2,8 +2,9 @@
 CAD.formats=
 CAD.pinconfig=
 CAD.provider=
-FREERTOS.IPParameters=Tasks01
-FREERTOS.Tasks01=defaultTask,24,128,StartDefaultTask,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.FootprintOK=true
+FREERTOS.IPParameters=Tasks01,FootprintOK
+FREERTOS.Tasks01=senderTask,24,128,StartSenderTask,Default,NULL,Dynamic,NULL,NULL;receiverTask,8,128,StartReceiverTask,Default,NULL,Dynamic,NULL,NULL
 File.Version=6
 I2S3.AudioFreq-Half_Duplex_Master=I2S_AUDIOFREQ_96K
 I2S3.ErrorAudioFreq=-2.34 %
