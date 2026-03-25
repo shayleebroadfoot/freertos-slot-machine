@@ -51,19 +51,33 @@ I2S_HandleTypeDef hi2s3;
 
 SPI_HandleTypeDef hspi1;
 
-/* Definitions for senderTask */
-osThreadId_t senderTaskHandle;
-const osThreadAttr_t senderTask_attributes = {
-  .name = "senderTask",
+/* Definitions for gameTask */
+osThreadId_t gameTaskHandle;
+const osThreadAttr_t gameTask_attributes = {
+  .name = "gameTask",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-/* Definitions for receiverTask */
-osThreadId_t receiverTaskHandle;
-const osThreadAttr_t receiverTask_attributes = {
-  .name = "receiverTask",
+/* Definitions for inputTask */
+osThreadId_t inputTaskHandle;
+const osThreadAttr_t inputTask_attributes = {
+  .name = "inputTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for displayTask */
+osThreadId_t displayTaskHandle;
+const osThreadAttr_t displayTask_attributes = {
+  .name = "displayTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for creditTask */
+osThreadId_t creditTaskHandle;
+const osThreadAttr_t creditTask_attributes = {
+  .name = "creditTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
 
@@ -75,8 +89,10 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
-void StartSenderTask(void *argument);
-void StartReceiverTask(void *argument);
+void StartGameTask(void *argument);
+void StartInputTask(void *argument);
+void startDisplayTask(void *argument);
+void startCreditTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -131,7 +147,7 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
+  // Insert semaphores here or some shite
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -143,11 +159,17 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of senderTask */
-  senderTaskHandle = osThreadNew(StartSenderTask, NULL, &senderTask_attributes);
+  /* creation of gameTask */
+  gameTaskHandle = osThreadNew(StartGameTask, NULL, &gameTask_attributes);
 
-  /* creation of receiverTask */
-  receiverTaskHandle = osThreadNew(StartReceiverTask, NULL, &receiverTask_attributes);
+  /* creation of inputTask */
+  inputTaskHandle = osThreadNew(StartInputTask, NULL, &inputTask_attributes);
+
+  /* creation of displayTask */
+  displayTaskHandle = osThreadNew(startDisplayTask, NULL, &displayTask_attributes);
+
+  /* creation of creditTask */
+  creditTaskHandle = osThreadNew(startCreditTask, NULL, &creditTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -426,14 +448,14 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartSenderTask */
+/* USER CODE BEGIN Header_StartGameTask */
 /**
-  * @brief  Function implementing the senderTask thread.
+  * @brief  Function implementing the gameTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartSenderTask */
-void StartSenderTask(void *argument)
+/* USER CODE END Header_StartGameTask */
+void StartGameTask(void *argument)
 {
   /* init code for USB_HOST */
   MX_USB_HOST_Init();
@@ -443,41 +465,64 @@ void StartSenderTask(void *argument)
   {
       HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
 
-      if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
-      {
-          xTaskNotifyGive(receiverTaskHandle);
-          vTaskDelay(pdMS_TO_TICKS(5000));
-      }
-
-      vTaskDelay(pdMS_TO_TICKS(50));
   }
   /* USER CODE END 5 */
 }
 
-/* USER CODE BEGIN Header_StartReceiverTask */
+/* USER CODE BEGIN Header_StartInputTask */
 /**
-* @brief Function implementing the receiverTask thread.
+* @brief Function implementing the inputTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartReceiverTask */
-void StartReceiverTask(void *argument)
+/* USER CODE END Header_StartInputTask */
+void StartInputTask(void *argument)
 {
-  /* USER CODE BEGIN StartReceiverTask */
+  /* USER CODE BEGIN StartInputTask */
   /* Infinite loop */
   for(;;)
   {
-	  ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
-
-      vTaskDelay(pdMS_TO_TICKS(5000));
-
-      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
+    osDelay(1);
   }
-  /* USER CODE END StartReceiverTask */
+  /* USER CODE END StartInputTask */
 }
+
+/* USER CODE BEGIN Header_startDisplayTask */
+/**
+* @brief Function implementing the displayTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_startDisplayTask */
+void startDisplayTask(void *argument)
+{
+  /* USER CODE BEGIN startDisplayTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END startDisplayTask */
+}
+
+/* USER CODE BEGIN Header_startCreditTask */
+/**
+* @brief Function implementing the creditTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_startCreditTask */
+void startCreditTask(void *argument)
+{
+  /* USER CODE BEGIN startCreditTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END startCreditTask */
+}
+
 /**
   * @brief  This function is executed in case of error occurrence.
   * @retval None
