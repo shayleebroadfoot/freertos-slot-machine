@@ -70,7 +70,7 @@ osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
   .name = "displayTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for creditTask */
 osThreadId_t creditTaskHandle;
@@ -79,6 +79,8 @@ const osThreadAttr_t creditTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+
+osSemaphoreId semaphoreHandle;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -102,6 +104,14 @@ void startCreditTask(void *argument);
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
+
+/*
+ * 0 = IDLE
+ * 1 = CREDITS
+ * 2 = PLAYING
+ */
+
+int STATE = 0; // Determines what state the code is in.
 
 /**
   * @brief  The application entry point.
@@ -170,6 +180,8 @@ int main(void)
 
   /* creation of creditTask */
   creditTaskHandle = osThreadNew(startCreditTask, NULL, &creditTask_attributes);
+
+  semaphoreHandle = osSemaphoreNew(1, 0, NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -446,6 +458,23 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+// IDLE screen (Nothing displayed for now)
+void displayIdleScreen(void) {
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12 | GPIO_PIN_15, GPIO_PIN_RESET); // Others OFF
+}
+
+// CREDITS screen turns on GREEN LED
+void displayCreditsScreen(void) {
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET); // GREEN ON
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET); // Others OFF
+}
+
+// PLAYING screen turns on BLUE LED
+void displayPlayingScreen(void) {
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET); // BLUE ON
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET); // Others OFF
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartGameTask */
@@ -464,6 +493,7 @@ void StartGameTask(void *argument)
   for(;;)
   {
       HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
+      osDelay(100);
 
   }
   /* USER CODE END 5 */
@@ -478,13 +508,19 @@ void StartGameTask(void *argument)
 /* USER CODE END Header_StartInputTask */
 void StartInputTask(void *argument)
 {
-  /* USER CODE BEGIN StartInputTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartInputTask */
+	for(;;) {
+			// Check if button is pressed
+		    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
+		    {
+		    	STATE = (STATE + 1) % 3;
+		    	osSemaphoreRelease(semaphoreHandle);
+		    	while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
+		    	{
+		    		osDelay(10);
+		    	}
+		    }
+		    osDelay(20);
+		}
 }
 
 /* USER CODE BEGIN Header_startDisplayTask */
@@ -496,13 +532,21 @@ void StartInputTask(void *argument)
 /* USER CODE END Header_startDisplayTask */
 void startDisplayTask(void *argument)
 {
-  /* USER CODE BEGIN startDisplayTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END startDisplayTask */
+	int lastState = -1;  // Keep track of previous state to avoid unnecessary updates
+
+	    for(;;) {
+	        if(osSemaphoreAcquire(semaphoreHandle, osWaitForever) == osOK) {
+	            if(STATE != lastState) {   // Only update if state changed
+	                switch(STATE) {
+	                    case 0: displayIdleScreen(); break;
+	                    case 1: displayCreditsScreen(); break;
+	                    case 2: displayPlayingScreen(); break;
+	                }
+	                lastState = STATE;
+	            }
+	        }
+	        osDelay(10);
+	    }
 }
 
 /* USER CODE BEGIN Header_startCreditTask */
