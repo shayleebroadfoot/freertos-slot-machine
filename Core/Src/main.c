@@ -27,6 +27,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include <stdio.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,6 +38,18 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+// State Definitions
+#define STATE_BOOT         0
+#define STATE_IDLE         1
+#define STATE_ADD_CREDITS  2
+#define STATE_PLAYING      3
+#define STATE_CASH_OUT     4
+
+// Game Constants
+#define MAX_WAGER          10
+#define BOOT_TIME_MS       3000
+#define CASHOUT_TIME_MS    5000
 
 /* USER CODE END PD */
 
@@ -83,6 +97,17 @@ const osThreadAttr_t creditTask_attributes = {
 };
 /* USER CODE BEGIN PV */
 
+// Volatile because these change across different tasks
+volatile int STATE = STATE_BOOT;
+
+uint32_t currentBalance = 0;
+uint32_t currentWager = 1;
+uint32_t totalWinnings = 0;
+
+// Variables for the RNG logic
+uint32_t targetValue = 0; // The number to match (1-9)
+uint32_t userValue = 0;   // The randomly generated result of the spin
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,7 +128,93 @@ void startCreditTask(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+// 8-bit I2C address for PCF8574T (0x27 << 1)
+#define LCD_ADDR 0x4E
 
+/**
+ * @brief Sends a command to the LCD (RS = 0)
+ */
+void lcd_send_cmd(char cmd)
+{
+    char data_u, data_l;
+    uint8_t data_t[4];
+    data_u = (cmd & 0xf0);
+    data_l = ((cmd << 4) & 0xf0);
+    // Backlight is bit 3 (0x08), Enable is bit 2 (0x04), RS is bit 0 (0x01)
+    data_t[0] = data_u | 0x0C;  // Backlight ON, Enable HIGH, RS LOW
+    data_t[1] = data_u | 0x08;  // Backlight ON, Enable LOW, RS LOW
+    data_t[2] = data_l | 0x0C;  // Lower nibble Enable HIGH
+    data_t[3] = data_l | 0x08;  // Lower nibble Enable LOW
+    HAL_I2C_Master_Transmit(&hi2c1, LCD_ADDR, (uint8_t *)data_t, 4, 100);
+}
+
+/**
+ * @brief Sends data/characters to the LCD (RS = 1)
+ */
+void lcd_send_data(char data)
+{
+    char data_u, data_l;
+    uint8_t data_t[4];
+    data_u = (data & 0xf0);
+    data_l = ((data << 4) & 0xf0);
+    data_t[0] = data_u | 0x0D;  // Backlight ON, Enable HIGH, RS HIGH
+    data_t[1] = data_u | 0x09;  // Backlight ON, Enable LOW, RS HIGH
+    data_t[2] = data_l | 0x0D;  // Lower nibble Enable HIGH
+    data_t[3] = data_l | 0x09;  // Lower nibble Enable LOW
+    HAL_I2C_Master_Transmit(&hi2c1, LCD_ADDR, (uint8_t *)data_t, 4, 100);
+}
+
+/**
+ * @brief Positions the cursor: row (0-1), col (0-15)
+ */
+void lcd_put_cur(int row, int col)
+{
+    switch (row)
+    {
+        case 0: col |= 0x80; break;
+        case 1: col |= 0xC0; break;
+    }
+    lcd_send_cmd(col);
+}
+
+/**
+ * @brief Initializes the LCD into 4-bit mode
+ */
+void lcd_init(void)
+{
+    // 1. Wait for stable power
+    osDelay(100);
+
+    // 2. Force 8-bit mode 3 times to sync (Standard HD44780 procedure)
+    lcd_send_cmd(0x33);
+    osDelay(5);
+    lcd_send_cmd(0x32);
+    osDelay(1);
+
+    // 3. Now set 4-bit mode, 2 lines, 5x8 font
+    lcd_send_cmd(0x28);
+    osDelay(1);
+
+    // 4. Display Control (Display ON, Cursor OFF)
+    lcd_send_cmd(0x0C);
+    osDelay(1);
+
+    // 5. Clear Display
+    lcd_send_cmd(0x01);
+    osDelay(2);
+
+    // 6. Entry Mode Set
+    lcd_send_cmd(0x06);
+    osDelay(1);
+}
+
+/**
+ * @brief Sends a full string of text to the LCD
+ */
+void lcd_send_string(char *str)
+{
+    while (*str) lcd_send_data(*str++);
+}
 /* USER CODE END 0 */
 
 /**
@@ -437,7 +548,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : BTN_LEVER_SPIN_Pin */
   GPIO_InitStruct.Pin = BTN_LEVER_SPIN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(BTN_LEVER_SPIN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BOOT1_Pin */
@@ -487,20 +598,43 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 // IDLE screen (Nothing displayed for now)
-void displayIdleScreen(void) {
+void displayIdleScreen(void)
+{
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12 | GPIO_PIN_15, GPIO_PIN_RESET); // Others OFF
 }
 
 // CREDITS screen turns on GREEN LED
-void displayCreditsScreen(void) {
+void displayCreditsScreen(void)
+{
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET); // GREEN ON
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET); // Others OFF
 }
 
 // PLAYING screen turns on BLUE LED
-void displayPlayingScreen(void) {
+void displayPlayingScreen(void)
+{
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET); // BLUE ON
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET); // Others OFF
+}
+
+/* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == BTN_LEVER_SPIN_Pin) // Check if it was the Blue Button
+  {
+    if (STATE == STATE_IDLE)
+    {
+      STATE = STATE_ADD_CREDITS;
+    }
+    else if (STATE == STATE_ADD_CREDITS && currentBalance > 0)
+    {
+      STATE = STATE_PLAYING;
+    }
+    else if (STATE == STATE_PLAYING)
+    {
+      // This is where the RNG "Spin" will happen.
+    }
+  }
 }
 
 /* USER CODE END 4 */
@@ -517,12 +651,21 @@ void StartGameTask(void *argument)
   /* init code for USB_HOST */
   MX_USB_HOST_Init();
   /* USER CODE BEGIN 5 */
+
+  // --- BOOT LOCKOUT (STATE 0) ---
+  // We stay here for 3 seconds. Buttons will be ignored in the InputTask later.
+  HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_SET); // ORANGE LED indicates BOOTING
+
+  osDelay(BOOT_TIME_MS); // Simple delay during the startup phase
+
+  STATE = STATE_IDLE; // Move to IDLE after 3 seconds
+  HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_RESET); // BOOT LED (ORANGE) OFF
+
   /* Infinite loop */
   for(;;)
   {
-      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
-      osDelay(100);
-
+    // The main game logic will go here in the next step
+    osDelay(10);
   }
   /* USER CODE END 5 */
 }
@@ -537,10 +680,47 @@ void StartGameTask(void *argument)
 void StartInputTask(void *argument)
 {
   /* USER CODE BEGIN StartInputTask */
-  /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    // Only allow input if we aren't in the BOOT or CASH_OUT states
+    if (STATE != STATE_BOOT && STATE != STATE_CASH_OUT)
+    {
+      // --- ADD CREDIT BUTTON (PE5) ---
+      if (HAL_GPIO_ReadPin(GPIOE, BTN_ADD_CREDIT_Pin) == GPIO_PIN_RESET)
+      {
+        STATE = STATE_ADD_CREDITS;
+        osDelay(200); // Debounce
+      }
+
+      // --- UP BUTTON (PE2) ---
+      if (HAL_GPIO_ReadPin(GPIOE, BTN_UP_Pin) == GPIO_PIN_RESET)
+      {
+        if (STATE == STATE_ADD_CREDITS)
+        {
+           currentBalance++;
+        }
+        else if (STATE == STATE_PLAYING && currentWager < MAX_WAGER)
+        {
+           currentWager++;
+        }
+        osDelay(200); // Debounce
+      }
+
+      // --- DOWN BUTTON (PE4) ---
+      if (HAL_GPIO_ReadPin(GPIOE, BTN_DOWN_Pin) == GPIO_PIN_RESET)
+      {
+        if (STATE == STATE_ADD_CREDITS && currentBalance > 0)
+        {
+           currentBalance--;
+        }
+        else if (STATE == STATE_PLAYING && currentWager > 1)
+        {
+           currentWager--;
+        }
+        osDelay(200); // Debounce
+      }
+    }
+    osDelay(20); // Save CPU power
   }
   /* USER CODE END StartInputTask */
 }
@@ -555,10 +735,69 @@ void StartInputTask(void *argument)
 void startDisplayTask(void *argument)
 {
   /* USER CODE BEGIN startDisplayTask */
-  /* Infinite loop */
+  // 1. Initialize the LCD hardware
+  lcd_init();
+
+  char buffer[17]; // Buffer to hold one line of text (16 chars + null terminator)
+  int lastState = -1;
+
   for(;;)
   {
-    osDelay(1);
+    // Only clear the screen when we CHANGE states to prevent flickering
+    if (STATE != lastState)
+    {
+        lcd_send_cmd(0x01); // Clear Display
+        lastState = STATE;
+        // Turn off Green, Red, Blue (Orange is handled by Boot task)
+        HAL_GPIO_WritePin(GPIOD, LD4_Pin | LD5_Pin | LD6_Pin, GPIO_PIN_RESET);
+    }
+
+    switch(STATE)
+    {
+      case STATE_BOOT: // State 0
+        lcd_put_cur(0, 0);
+        lcd_send_string("System");
+        lcd_put_cur(1, 0);
+        lcd_send_string("Initializing...");
+        break;
+
+      case STATE_IDLE: // State 1
+        lcd_put_cur(0, 0);
+        lcd_send_string("Welcome!");
+        lcd_put_cur(1, 0);
+        lcd_send_string("Press OK to Start");
+        break;
+
+      case STATE_ADD_CREDITS: // State 2
+        lcd_put_cur(0, 0);
+        lcd_send_string("Add Credits:");
+        // Use sprintf to put the currentBalance into our buffer
+        sprintf(buffer, "Balance: %lu", currentBalance);
+        lcd_put_cur(1, 0);
+        lcd_send_string(buffer);
+        HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET); // Green LED ON
+        break;
+
+      case STATE_PLAYING:
+		lcd_put_cur(0, 0);
+		sprintf(buffer, "Bal:%lu Wgr:%lu", currentBalance, currentWager);
+		lcd_send_string(buffer);
+		lcd_put_cur(1, 0);
+		lcd_send_string("Press OK to SPIN");
+		HAL_GPIO_WritePin(GPIOD, LD6_Pin, GPIO_PIN_SET); // Blue LED ON
+		break;
+
+	  case STATE_CASH_OUT:
+		lcd_put_cur(0, 0);
+		lcd_send_string("Cashing Out...");
+		sprintf(buffer, "Win:%lu Resetting", totalWinnings);
+		lcd_put_cur(1, 0);
+		lcd_send_string(buffer);
+		HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET); // Red LED ON
+		break;
+    }
+
+    osDelay(100); // Refresh every 100ms
   }
   /* USER CODE END startDisplayTask */
 }
