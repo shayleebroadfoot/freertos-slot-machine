@@ -49,6 +49,8 @@ I2C_HandleTypeDef hi2c1;
 
 I2S_HandleTypeDef hi2s3;
 
+RNG_HandleTypeDef hrng;
+
 SPI_HandleTypeDef hspi1;
 
 /* Definitions for gameTask */
@@ -70,7 +72,7 @@ osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
   .name = "displayTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for creditTask */
 osThreadId_t creditTaskHandle;
@@ -79,8 +81,6 @@ const osThreadAttr_t creditTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-
-osSemaphoreId semaphoreHandle;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -91,6 +91,7 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_RNG_Init(void);
 void StartGameTask(void *argument);
 void StartInputTask(void *argument);
 void startDisplayTask(void *argument);
@@ -104,14 +105,6 @@ void startCreditTask(void *argument);
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
-
-/*
- * 0 = IDLE
- * 1 = CREDITS
- * 2 = PLAYING
- */
-
-int STATE = 0; // Determines what state the code is in.
 
 /**
   * @brief  The application entry point.
@@ -145,6 +138,7 @@ int main(void)
   MX_I2C1_Init();
   MX_I2S3_Init();
   MX_SPI1_Init();
+  MX_RNG_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -180,8 +174,6 @@ int main(void)
 
   /* creation of creditTask */
   creditTaskHandle = osThreadNew(startCreditTask, NULL, &creditTask_attributes);
-
-  semaphoreHandle = osSemaphoreNew(1, 0, NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -321,6 +313,32 @@ static void MX_I2S3_Init(void)
 }
 
 /**
+  * @brief RNG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RNG_Init(void)
+{
+
+  /* USER CODE BEGIN RNG_Init 0 */
+
+  /* USER CODE END RNG_Init 0 */
+
+  /* USER CODE BEGIN RNG_Init 1 */
+
+  /* USER CODE END RNG_Init 1 */
+  hrng.Instance = RNG;
+  if (HAL_RNG_Init(&hrng) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RNG_Init 2 */
+
+  /* USER CODE END RNG_Init 2 */
+
+}
+
+/**
   * @brief SPI1 Initialization Function
   * @param None
   * @retval None
@@ -388,6 +406,12 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOD, LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin
                           |Audio_RST_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pins : BTN_UP_Pin BTN_DOWN_Pin BTN_ADD_CREDIT_Pin BTN_EXIT_Pin */
+  GPIO_InitStruct.Pin = BTN_UP_Pin|BTN_DOWN_Pin|BTN_ADD_CREDIT_Pin|BTN_EXIT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
   /*Configure GPIO pin : CS_I2C_SPI_Pin */
   GPIO_InitStruct.Pin = CS_I2C_SPI_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -410,11 +434,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
   HAL_GPIO_Init(PDM_OUT_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+  /*Configure GPIO pin : BTN_LEVER_SPIN_Pin */
+  GPIO_InitStruct.Pin = BTN_LEVER_SPIN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(BTN_LEVER_SPIN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BOOT1_Pin */
   GPIO_InitStruct.Pin = BOOT1_Pin;
@@ -450,6 +474,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(MEMS_INT2_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -508,19 +536,13 @@ void StartGameTask(void *argument)
 /* USER CODE END Header_StartInputTask */
 void StartInputTask(void *argument)
 {
-	for(;;) {
-			// Check if button is pressed
-		    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
-		    {
-		    	STATE = (STATE + 1) % 3;
-		    	osSemaphoreRelease(semaphoreHandle);
-		    	while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
-		    	{
-		    		osDelay(10);
-		    	}
-		    }
-		    osDelay(20);
-		}
+  /* USER CODE BEGIN StartInputTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartInputTask */
 }
 
 /* USER CODE BEGIN Header_startDisplayTask */
@@ -532,21 +554,13 @@ void StartInputTask(void *argument)
 /* USER CODE END Header_startDisplayTask */
 void startDisplayTask(void *argument)
 {
-	int lastState = -1;  // Keep track of previous state to avoid unnecessary updates
-
-	    for(;;) {
-	        if(osSemaphoreAcquire(semaphoreHandle, osWaitForever) == osOK) {
-	            if(STATE != lastState) {   // Only update if state changed
-	                switch(STATE) {
-	                    case 0: displayIdleScreen(); break;
-	                    case 1: displayCreditsScreen(); break;
-	                    case 2: displayPlayingScreen(); break;
-	                }
-	                lastState = STATE;
-	            }
-	        }
-	        osDelay(10);
-	    }
+  /* USER CODE BEGIN startDisplayTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END startDisplayTask */
 }
 
 /* USER CODE BEGIN Header_startCreditTask */

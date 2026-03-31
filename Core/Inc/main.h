@@ -57,8 +57,16 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define BTN_UP_Pin GPIO_PIN_2
+#define BTN_UP_GPIO_Port GPIOE
 #define CS_I2C_SPI_Pin GPIO_PIN_3
 #define CS_I2C_SPI_GPIO_Port GPIOE
+#define BTN_DOWN_Pin GPIO_PIN_4
+#define BTN_DOWN_GPIO_Port GPIOE
+#define BTN_ADD_CREDIT_Pin GPIO_PIN_5
+#define BTN_ADD_CREDIT_GPIO_Port GPIOE
+#define BTN_EXIT_Pin GPIO_PIN_6
+#define BTN_EXIT_GPIO_Port GPIOE
 #define PC14_OSC32_IN_Pin GPIO_PIN_14
 #define PC14_OSC32_IN_GPIO_Port GPIOC
 #define PC15_OSC32_OUT_Pin GPIO_PIN_15
@@ -71,8 +79,9 @@ void Error_Handler(void);
 #define OTG_FS_PowerSwitchOn_GPIO_Port GPIOC
 #define PDM_OUT_Pin GPIO_PIN_3
 #define PDM_OUT_GPIO_Port GPIOC
-#define B1_Pin GPIO_PIN_0
-#define B1_GPIO_Port GPIOA
+#define BTN_LEVER_SPIN_Pin GPIO_PIN_0
+#define BTN_LEVER_SPIN_GPIO_Port GPIOA
+#define BTN_LEVER_SPIN_EXTI_IRQn EXTI0_IRQn
 #define I2S3_WS_Pin GPIO_PIN_4
 #define I2S3_WS_GPIO_Port GPIOA
 #define SPI1_SCK_Pin GPIO_PIN_5
