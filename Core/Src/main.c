@@ -625,6 +625,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == BTN_LEVER_SPIN_Pin)
   {
+	// Don't allow spinning if we are cashing out
+	if (STATE == STATE_CASH_OUT)
+		return;
     // DEBOUNCE: If the last press was less than 250ms ago, ignore this one
     if ((HAL_GetTick() - last_press_tick) < 250)
     {
@@ -761,29 +764,22 @@ void StartInputTask(void *argument)
         }
         osDelay(200); // Debounce
       }
-
       // --- EXIT / CASH OUT BUTTON (PE6) ---
-      if (HAL_GPIO_ReadPin(GPIOE, BTN_EXIT_Pin) == GPIO_PIN_RESET)
-      {
-        if (STATE == STATE_ADD_CREDITS || STATE == STATE_PLAYING)
-        {
-            // 1. Record the winnings for the displayTask to show
-            totalWinnings = currentBalance;
+		if (HAL_GPIO_ReadPin(GPIOE, BTN_EXIT_Pin) == GPIO_PIN_RESET)
+		{
+		  if (STATE == STATE_ADD_CREDITS || STATE == STATE_PLAYING)
+		  {
+			  totalWinnings = currentBalance; // 1. Save the final total
+			  STATE = STATE_CASH_OUT;         // 2. Switch state so LCD shows winnings
 
-            // 2. Clear values
-            currentBalance = 0;
-            currentWager = 1;
+			  osDelay(5000);                  // 3. The 5-second Lockout
 
-            // 3. THE LOCKOUT: 5 seconds of Red LED
-            HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);
-            osDelay(5000);
-            HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_RESET);
-
-            // 4. Reset to IDLE ONLY after the lockout is over
-            STATE = STATE_IDLE;
-        }
-        osDelay(200); // Debounce
-      }
+			  currentBalance = 0;             // 4. Reset values only after the wait
+			  currentWager = 1;
+			  STATE = STATE_IDLE;             // 5. Go back to Welcome screen
+		  }
+		  osDelay(200); // Debounce
+		}
     }
     osDelay(20); // Let the CPU breathe
   }
@@ -857,7 +853,7 @@ void startDisplayTask(void *argument)
 	  case STATE_CASH_OUT:
 		lcd_put_cur(0, 0);
 		lcd_send_string("Cashing Out...");
-		sprintf(buffer, "Win:%lu Resetting", totalWinnings);
+		sprintf(buffer, "Winnings: %lu", totalWinnings);
 		lcd_put_cur(1, 0);
 		lcd_send_string(buffer);
 		HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET); // Red LED ON
