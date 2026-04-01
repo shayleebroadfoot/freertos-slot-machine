@@ -108,6 +108,8 @@ uint32_t totalWinnings = 0;
 uint32_t targetValue = 0; // The number to match (1-9)
 uint32_t userValue = 0;   // The randomly generated result of the spin
 
+volatile uint32_t last_press_tick = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -618,21 +620,49 @@ void displayPlayingScreen(void)
 }
 
 /* USER CODE BEGIN 4 */
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  if (GPIO_Pin == BTN_LEVER_SPIN_Pin) // Check if it was the Blue Button
+  if (GPIO_Pin == BTN_LEVER_SPIN_Pin)
   {
+    // DEBOUNCE: If the last press was less than 250ms ago, ignore this one
+    if ((HAL_GetTick() - last_press_tick) < 250)
+    {
+      return;
+    }
+    last_press_tick = HAL_GetTick(); // Record the time of this valid press
+
+    // Now execute your state logic
     if (STATE == STATE_IDLE)
     {
       STATE = STATE_ADD_CREDITS;
     }
-    else if (STATE == STATE_ADD_CREDITS && currentBalance > 0)
+    else if (STATE == STATE_ADD_CREDITS)
     {
-      STATE = STATE_PLAYING;
+      if (currentBalance > 0)
+      {
+        STATE = STATE_PLAYING;
+      }
     }
     else if (STATE == STATE_PLAYING)
     {
-      // This is where the RNG "Spin" will happen.
+      // --- THE SPIN ---
+      uint32_t raw_rng;
+      HAL_RNG_GenerateRandomNumber(&hrng, &raw_rng);
+      targetValue = (raw_rng % 9) + 1;
+
+      HAL_RNG_GenerateRandomNumber(&hrng, &raw_rng);
+      userValue = (raw_rng % 9) + 1;
+
+      if (userValue == targetValue)
+      {
+        currentBalance += currentWager;
+      }
+      else
+      {
+        currentBalance -= currentWager;
+        if (currentBalance == 0) STATE = STATE_ADD_CREDITS;
+      }
     }
   }
 }
@@ -682,45 +712,80 @@ void StartInputTask(void *argument)
   /* USER CODE BEGIN StartInputTask */
   for(;;)
   {
-    // Only allow input if we aren't in the BOOT or CASH_OUT states
-    if (STATE != STATE_BOOT && STATE != STATE_CASH_OUT)
-    {
-      // --- ADD CREDIT BUTTON (PE5) ---
-      if (HAL_GPIO_ReadPin(GPIOE, BTN_ADD_CREDIT_Pin) == GPIO_PIN_RESET)
-      {
-        STATE = STATE_ADD_CREDITS;
-        osDelay(200); // Debounce
-      }
 
+  // --- ADD CREDIT BUTTON (PE5) ---
+	if (HAL_GPIO_ReadPin(GPIOE, BTN_ADD_CREDIT_Pin) == GPIO_PIN_RESET)
+	{
+	  // If we are playing, go back to the credit screen
+	  if (STATE == STATE_PLAYING)
+	  {
+		  STATE = STATE_ADD_CREDITS;
+	  }
+	  // If we were already in IDLE, move to ADD_CREDITS
+	  else if (STATE == STATE_IDLE)
+	  {
+		  STATE = STATE_ADD_CREDITS;
+	  }
+	  osDelay(200); // Debounce
+	}
+    // Only allow input if we are in a state that accepts it
+    if (STATE == STATE_ADD_CREDITS || STATE == STATE_PLAYING)
+    {
       // --- UP BUTTON (PE2) ---
       if (HAL_GPIO_ReadPin(GPIOE, BTN_UP_Pin) == GPIO_PIN_RESET)
       {
         if (STATE == STATE_ADD_CREDITS)
         {
-           currentBalance++;
+           currentBalance++; // Add money
         }
-        else if (STATE == STATE_PLAYING && currentWager < MAX_WAGER)
+        else if (STATE == STATE_PLAYING)
         {
-           currentWager++;
+           if (currentWager < MAX_WAGER && currentWager < currentBalance)
+           {
+              currentWager++; // Increase bet
+           }
         }
-        osDelay(200); // Debounce
+        osDelay(200); // Debounce: wait for finger to lift
       }
 
       // --- DOWN BUTTON (PE4) ---
       if (HAL_GPIO_ReadPin(GPIOE, BTN_DOWN_Pin) == GPIO_PIN_RESET)
       {
-        if (STATE == STATE_ADD_CREDITS && currentBalance > 0)
+        if (STATE == STATE_ADD_CREDITS)
         {
-           currentBalance--;
+           if (currentBalance > 0) currentBalance--; // Prevent negative balance
         }
-        else if (STATE == STATE_PLAYING && currentWager > 1)
+        else if (STATE == STATE_PLAYING)
         {
-           currentWager--;
+           if (currentWager > 1) currentWager--; // Minimum bet is 1
+        }
+        osDelay(200); // Debounce
+      }
+
+      // --- EXIT / CASH OUT BUTTON (PE6) ---
+      if (HAL_GPIO_ReadPin(GPIOE, BTN_EXIT_Pin) == GPIO_PIN_RESET)
+      {
+        if (STATE == STATE_ADD_CREDITS || STATE == STATE_PLAYING)
+        {
+            // 1. Record the winnings for the displayTask to show
+            totalWinnings = currentBalance;
+
+            // 2. Clear values
+            currentBalance = 0;
+            currentWager = 1;
+
+            // 3. THE LOCKOUT: 5 seconds of Red LED
+            HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);
+            osDelay(5000);
+            HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_RESET);
+
+            // 4. Reset to IDLE ONLY after the lockout is over
+            STATE = STATE_IDLE;
         }
         osDelay(200); // Debounce
       }
     }
-    osDelay(20); // Save CPU power
+    osDelay(20); // Let the CPU breathe
   }
   /* USER CODE END StartInputTask */
 }
@@ -763,9 +828,9 @@ void startDisplayTask(void *argument)
 
       case STATE_IDLE: // State 1
         lcd_put_cur(0, 0);
-        lcd_send_string("Welcome!");
+        lcd_send_string("Welcome! Press");
         lcd_put_cur(1, 0);
-        lcd_send_string("Press OK to Start");
+        lcd_send_string("OK to Start");
         break;
 
       case STATE_ADD_CREDITS: // State 2
@@ -780,11 +845,13 @@ void startDisplayTask(void *argument)
 
       case STATE_PLAYING:
 		lcd_put_cur(0, 0);
-		sprintf(buffer, "Bal:%lu Wgr:%lu", currentBalance, currentWager);
+	    sprintf(buffer, "B:%lu W:%lu", currentBalance, currentWager);
 		lcd_send_string(buffer);
+
+		// Show the result of the last spin
 		lcd_put_cur(1, 0);
-		lcd_send_string("Press OK to SPIN");
-		HAL_GPIO_WritePin(GPIOD, LD6_Pin, GPIO_PIN_SET); // Blue LED ON
+		sprintf(buffer, "Tgt:%lu Res:%lu", targetValue, userValue);
+		lcd_send_string(buffer);
 		break;
 
 	  case STATE_CASH_OUT:
