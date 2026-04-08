@@ -661,6 +661,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       {
         currentBalance += currentWager;
       }
+      else if (currentWager > currentBalance)
+            {
+          	  STATE = STATE_ADD_CREDITS;
+            }
       else
       {
         currentBalance -= currentWager;
@@ -840,8 +844,20 @@ void startDisplayTask(void *argument)
         break;
 
       case STATE_PLAYING:
+
+	    taskENTER_CRITICAL();
+
+	    uint32_t balance = currentBalance;
+	    uint32_t wager = currentWager;
+
+	    taskEXIT_CRITICAL();
+
+	    // Clears the screen before updating the balance and wager
+	    lcd_put_cur(0, 0);
+	    lcd_send_string("                       ");
+
 		lcd_put_cur(0, 0);
-	    sprintf(buffer, "B:%lu W:%lu", currentBalance, currentWager);
+	    sprintf(buffer, "B:%lu W:%lu", balance, wager);
 		lcd_send_string(buffer);
 
 		// Show the result of the last spin
@@ -860,7 +876,7 @@ void startDisplayTask(void *argument)
 		break;
     }
 
-    osDelay(100); // Refresh every 100ms
+    osDelay(200); // Refresh every 200ms
   }
   /* USER CODE END startDisplayTask */
 }
