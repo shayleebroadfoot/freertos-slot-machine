@@ -647,30 +647,66 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         STATE = STATE_PLAYING;
       }
     }
+
     else if (STATE == STATE_PLAYING)
     {
+      // Make sure the player can afford the spin
+      if (currentWager > currentBalance)
+      {
+        STATE = STATE_ADD_CREDITS;
+        return;
+      }
+
       // --- THE SPIN ---
       uint32_t raw_rng;
+      uint32_t payout = 0;
+      uint32_t diff = 0;
+
       HAL_RNG_GenerateRandomNumber(&hrng, &raw_rng);
       targetValue = (raw_rng % 9) + 1;
 
       HAL_RNG_GenerateRandomNumber(&hrng, &raw_rng);
       userValue = (raw_rng % 9) + 1;
 
-      if (userValue == targetValue)
+      // Deduct wager first
+      currentBalance -= currentWager;
+
+      // Find absolute difference
+      if (userValue > targetValue)
       {
-        currentBalance += currentWager;
+        diff = userValue - targetValue;
       }
-      else if (currentWager > currentBalance)
-            {
-          	  STATE = STATE_ADD_CREDITS;
-            }
       else
       {
-        currentBalance -= currentWager;
-        if (currentBalance == 0) STATE = STATE_ADD_CREDITS;
+        diff = targetValue - userValue;
+      }
+
+      // Apply payout multiplier
+      if (diff == 0)
+      {
+        payout = currentWager * 5;   // Exact match: 5x wager
+      }
+      else if (diff == 1)
+      {
+        payout = currentWager * 2;   // Difference of 1: 2x wager
+      }
+      else if (diff == 2)
+      {
+        payout = currentWager;       // Difference of 2: 1x wager
+      }
+      else
+      {
+        payout = 0;                  // Difference greater than 2: 0x
+      }
+
+      currentBalance += payout;
+
+      if (currentBalance == 0)
+      {
+        STATE = STATE_ADD_CREDITS;
       }
     }
+
   }
 }
 
@@ -785,7 +821,7 @@ void StartInputTask(void *argument)
 		  osDelay(200); // Debounce
 		}
     }
-    osDelay(20); // Let the CPU breathe
+    osDelay(20);
   }
   /* USER CODE END StartInputTask */
 }
